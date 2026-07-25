@@ -110,19 +110,19 @@ def load_parsed(fp):
 
 
 def find_project_dir(root, slug):
-    """大小写不敏感地解析 projects/<slug> 真实目录（跨盘符/特殊字符/大小写均稳健）。"""
+    """解析 projects/<slug> 真实目录：先按原样（保留大小写）匹配，再转小写匹配；都失败返回 None。"""
     projects = os.path.join(root, "projects")
     if not os.path.isdir(projects):
         return None
-    target = (slug or "").lower()
+    # 第一步：原样（保留大小写）精确匹配
     exact = os.path.join(projects, slug)
     if os.path.isdir(exact):
         return exact
-    for name in os.listdir(projects):
-        if name.lower() == target:
-            p = os.path.join(projects, name)
-            if os.path.isdir(p):
-                return p
+    # 第二步：转小写精确匹配（兜底）
+    low = (slug or "").lower()
+    low_exact = os.path.join(projects, low)
+    if os.path.isdir(low_exact):
+        return low_exact
     return None
 
 
@@ -294,6 +294,22 @@ def empty_out(scope, query, time_range):
     return out
 
 
+def project_not_found(scope, cwd):
+    """current/project 范围无法定位项目目录时的明确提示（三级 fallback 的最后一步）。"""
+    slug = slug_from_cwd(cwd)
+    return {
+        "search_scope": scope,
+        "total_results": 0,
+        "results": [],
+        "error": "project_dir_not_found",
+        "expand_suggestion": (
+            f"无法定位当前项目目录（推导 slug={slug}）。"
+            "请确认当前工作目录是否正确；或改用 --scope all 搜索所有项目。"
+        ),
+        "suggestions": {"related_queries": [], "time_range_rewrites": []},
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--query", required=True)
@@ -310,6 +326,13 @@ def main():
     args = ap.parse_args()
 
     root = wb_root(args.root)
+
+    # current/project 范围需先定位项目目录；定位不到则明确报告，不再继续搜索
+    if args.scope in ("current", "project"):
+        if not find_project_dir(root, slug_from_cwd(args.cwd)):
+            print(json.dumps(project_not_found(args.scope, args.cwd), ensure_ascii=False, indent=2))
+            return
+
     terms = tokenize(args.query)
     if not terms:
         print(json.dumps(empty_out(args.scope, args.query, args.time_range), ensure_ascii=False, indent=2))
