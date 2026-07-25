@@ -110,19 +110,23 @@ def load_parsed(fp):
 
 
 def find_project_dir(root, slug):
-    """解析 projects/<slug> 真实目录：先按原样（保留大小写）匹配，再转小写匹配；都失败返回 None。"""
+    """解析 projects/<slug> 真实目录：先按原样（保留大小写）匹配，再转小写匹配；都失败返回 None。
+
+    返回 realpath：小写兜底命中时，也能让上层 project_name 反映磁盘上的真实大小写
+    （Windows 等大小写不敏感文件系统上 realpath 会还原真实目录名）。
+    """
     projects = os.path.join(root, "projects")
     if not os.path.isdir(projects):
         return None
     # 第一步：原样（保留大小写）精确匹配
     exact = os.path.join(projects, slug)
     if os.path.isdir(exact):
-        return exact
+        return os.path.realpath(exact)
     # 第二步：转小写精确匹配（兜底）
     low = (slug or "").lower()
     low_exact = os.path.join(projects, low)
     if os.path.isdir(low_exact):
-        return low_exact
+        return os.path.realpath(low_exact)
     return None
 
 
