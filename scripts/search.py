@@ -5,10 +5,12 @@ Pure-local, stdlib-only. Reads ~/.workbuddy/projects/<slug>/<conversationId>.jso
 Output: JSON to stdout.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 
@@ -48,6 +50,63 @@ def load_sessions(root):
     except Exception:
         pass
     return out
+
+
+CACHE_DIR = os.path.join(tempfile.gettempdir(), "lcs_cache")
+
+
+def _cache_path(fp):
+    h = hashlib.md5(fp.encode("utf-8")).hexdigest()
+    return os.path.join(CACHE_DIR, h + ".json")
+
+
+def load_parsed(fp):
+    """返回 (records, title)。records: [(ts, text, role)]；优先读 temp 缓存，按 mtime+size 失效。"""
+    try:
+        st = os.stat(fp)
+    except OSError:
+        return [], None
+    cpath = _cache_path(fp)
+    if os.path.isfile(cpath):
+        try:
+            with open(cpath, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            if cache.get("mtime") == st.st_mtime and cache.get("size") == st.st_size:
+                return cache.get("records", []), cache.get("title")
+        except Exception:
+            pass
+    records = []
+    title = None
+    try:
+        with open(fp, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("type") == "ai-title":
+                    title = rec.get("aiTitle")
+                    continue
+                text, role = extract_text(rec)
+                if text is None:
+                    continue
+                ts = rec.get("timestamp")
+                if not isinstance(ts, (int, float)):
+                    continue
+                records.append([ts, text, role])
+    except Exception:
+        return records, title
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(cpath, "w", encoding="utf-8") as f:
+            json.dump({"mtime": st.st_mtime, "size": st.st_size,
+                       "records": records, "title": title}, f, ensure_ascii=False)
+    except Exception:
+        pass
+    return records, title
 
 
 def iter_files(root, scope, cwd):
@@ -242,54 +301,40 @@ def main():
     for fp in iter_files(root, args.scope, args.cwd):
         slug = os.path.basename(os.path.dirname(fp))
         sid = os.path.splitext(os.path.basename(fp))[0]
-        try:
-            with open(fp, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                    except Exception:
-                        continue
-                    if rec.get("type") == "ai-title":
-                        sess_titles[sid] = rec.get("aiTitle")
-                        continue
-                    text, role = extract_text(rec)
-                    if text is None:
-                        continue
-                    ts = rec.get("timestamp")
-                    if not isinstance(ts, (int, float)):
-                        continue
-                    if not in_time_range(ts, args.time_range, args.time_start, args.time_end):
-                        continue
-                    if role in ("user", "assistant"):
-                        sess_turn[sid] = sess_turn.get(sid, 0) + 1
-                    sc = score_text(text, terms)
-                    if sc <= 0:
-                        continue
-                    pos_idx = sess_turn.get(sid, 0)
-                    code = None
-                    if not args.no_code:
-                        m = CODE_RE.search(text)
-                        if m:
-                            code = m.group(1).strip()
-                    snippet = make_snippet(text, terms)
-                    dt = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc).astimezone()
-                    results.append({
-                        "session_id": sid,
-                        "session_title": sess_titles.get(sid),
-                        "project_name": slug,
-                        "position": f"第 {pos_idx} 轮" if args.scope == "current" else (sess_titles.get(sid) or sid[:8]),
-                        "timestamp": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "match_score": round(sc, 1),
-                        "summary": snippet,
-                        "code_snippet": code,
-                        "highlight": [t for t in terms if t.lower() in text.lower()],
-                        "_ts": ts,
-                    })
-        except Exception:
-            continue
+        records, title = load_parsed(fp)
+        if title:
+            sess_titles[sid] = title
+        for ts, text, role in records:
+            if not in_time_range(ts, args.time_range, args.time_start, args.time_end):
+                continue
+            low = text.lower()
+            if not any(tok.lower() in low for tok in terms):
+                continue
+            if role in ("user", "assistant"):
+                sess_turn[sid] = sess_turn.get(sid, 0) + 1
+            sc = score_text(text, terms)
+            if sc <= 0:
+                continue
+            pos_idx = sess_turn.get(sid, 0)
+            code = None
+            if not args.no_code:
+                m = CODE_RE.search(text)
+                if m:
+                    code = m.group(1).strip()
+            snippet = make_snippet(text, terms)
+            dt = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc).astimezone()
+            results.append({
+                "session_id": sid,
+                "session_title": sess_titles.get(sid),
+                "project_name": slug,
+                "position": f"第 {pos_idx} 轮" if args.scope == "current" else (sess_titles.get(sid) or sid[:8]),
+                "timestamp": dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "match_score": round(sc, 1),
+                "summary": snippet,
+                "code_snippet": code,
+                "highlight": [t for t in terms if t.lower() in text.lower()],
+                "_ts": ts,
+            })
 
     if args.sort_by == "time":
         results.sort(key=lambda r: r["_ts"], reverse=True)
