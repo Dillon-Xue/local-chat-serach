@@ -30,27 +30,23 @@ local-chat-search 是一个 **WorkBuddy 本地对话历史搜索** skill。它�
 **典型场景**
 
 - 忘了之前怎么解决某个报错 → 在当前对话/项目内搜关键词。
-- 跨项目找之前写过的方案或脚本 → `scope=all` 全局搜。
-- 只想看最近一周里讨论过的某个主题 → 配合 `--time-range this_week`。
+- 跨项目找之前写过的方案或脚本 → 全局搜。
+- 只想看最近一周里讨论过的某个主题 → 加时间范围。
 - 让 agent 自己判断"用户是不是在问历史内容"并自动调用检索。
 
-**命令**
+**用户这样说来触发**
 
-由 agent 调用 `scripts/search.py`，或手动执行：
+| 你想做的事 | 示例命令 |
+|---|---|
+| 搜当前对话 | "搜一下之前的对话，关于微服务的" / "当前对话里有没有聊过 Redis" |
+| 搜当前项目 | "在当前项目里搜一下微服务" / "这个项目里之前怎么配的 CI" |
+| 搜所有项目 | "在所有项目里搜一下微服务" / "全局搜一下权限校验" |
+| 回忆之前问过什么 | "我之前是不是问过怎么配置 nginx？" / "我之前问过这个报错吗" |
+| 找历史代码/方案 | "帮我找找之前写的 JWT 校验代码" / "翻翻聊天记录，看看方案" |
+| 带时间范围 | "最近一周有没有聊过部署？" / "昨天我们讨论的优化方案" |
+| 无结果后扩大 | "扩大到当前项目再搜一下" / "所有项目里也帮我找找" |
 
-```bash
-python3 scripts/search.py --query "渐进式搜索" --scope current --cwd "<当前工作区路径>"
-
-# --scope         current | project | all
-# --time-range    all | today | yesterday | this_week | last_week | custom
-# --time-start / --time-end   自定义时间范围（YYYY-MM-DD），配合 custom
-# --sort-by       relevance | time
-# --max-results   返回条数，默认 10
-# --no-code       不提取代码片段
-# --root          <workbuddy根目录>，覆盖默认 ~/.workbuddy（多用于测试）
-```
-
-输出为标准 JSON（`search_scope` / `total_results` / `results` / 建议字段），便于 agent 解析后呈现给用户。
+Agent 会在背后把这些自然语言请求翻译成对 `scripts/search.py` 的调用（例如 `--query "微服务" --scope current|project|all --cwd "<当前工作区路径>"`），并返回格式化结果。
 
 ## 5. 项目架构
 
