@@ -1,0 +1,6 @@
+# 测试套件仅本地留存，不提交到仓库
+tests/
+
+# Python 缓存
+__pycache__/
+*.pyc

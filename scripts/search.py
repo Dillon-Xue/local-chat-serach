@@ -25,7 +25,7 @@ def wb_root(override=None):
 def slug_from_cwd(cwd):
     if not cwd:
         return ""
-    p = cwd.strip().lower()
+    p = cwd.strip()
     p = p.replace(":", "")
     p = p.replace("\\", "/")
     p = p.replace("/", "-")
@@ -109,6 +109,23 @@ def load_parsed(fp):
     return records, title
 
 
+def find_project_dir(root, slug):
+    """大小写不敏感地解析 projects/<slug> 真实目录（跨盘符/特殊字符/大小写均稳健）。"""
+    projects = os.path.join(root, "projects")
+    if not os.path.isdir(projects):
+        return None
+    target = (slug or "").lower()
+    exact = os.path.join(projects, slug)
+    if os.path.isdir(exact):
+        return exact
+    for name in os.listdir(projects):
+        if name.lower() == target:
+            p = os.path.join(projects, name)
+            if os.path.isdir(p):
+                return p
+    return None
+
+
 def iter_files(root, scope, cwd):
     projects = os.path.join(root, "projects")
     if not os.path.isdir(projects):
@@ -117,21 +134,21 @@ def iter_files(root, scope, cwd):
         sessions = load_sessions(root)
         slug = slug_from_cwd(cwd)
         cid = sessions.get(slug)
-        if cid:
-            cand = os.path.join(projects, slug, cid + ".jsonl")
+        sdir = find_project_dir(root, slug)
+        if cid and sdir:
+            cand = os.path.join(sdir, cid + ".jsonl")
             if os.path.isfile(cand):
                 yield cand
                 return
-        sdir = os.path.join(projects, slug)
-        if os.path.isdir(sdir):
+        if sdir:
             for fn in os.listdir(sdir):
                 if fn.endswith(".jsonl"):
                     yield os.path.join(sdir, fn)
         return
     if scope == "project":
         slug = slug_from_cwd(cwd)
-        sdir = os.path.join(projects, slug)
-        if os.path.isdir(sdir):
+        sdir = find_project_dir(root, slug)
+        if sdir:
             for fn in sorted(os.listdir(sdir)):
                 if fn.endswith(".jsonl"):
                     yield os.path.join(sdir, fn)
