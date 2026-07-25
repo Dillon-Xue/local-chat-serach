@@ -241,6 +241,8 @@ def related_queries(q):
     if len(toks) > 1:
         sugg.append(" ".join(toks[:-1]))
         sugg.append(" ".join(toks[1:]))
+    if not sugg:
+        sugg = ["换个说法描述同一问题", "尝试更通用的关键词或放宽时间范围"]
     return sugg[:3]
 
 
@@ -264,6 +266,8 @@ def empty_out(scope, query, time_range):
     }
     if scope == "current":
         out["expand_suggestion"] = "当前对话中未找到相关内容，可扩大到「当前项目」或「所有项目」再试。"
+    elif scope == "project":
+        out["expand_suggestion"] = "在当前项目中未找到相关内容，可扩大到「所有项目」再试。"
     else:
         out["expand_suggestion"] = "在所有范围内均未找到匹配内容。"
     out["suggestions"] = {
@@ -325,7 +329,7 @@ def main():
             dt = datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc).astimezone()
             results.append({
                 "session_id": sid,
-                "session_title": sess_titles.get(sid),
+                "session_title": sess_titles.get(sid) or f"会话{sid[:8]}",
                 "project_name": slug,
                 "position": f"第 {pos_idx} 轮" if args.scope == "current" else (sess_titles.get(sid) or sid[:8]),
                 "timestamp": dt.strftime("%Y-%m-%d %H:%M:%S"),
